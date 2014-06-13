@@ -5,6 +5,13 @@ module RSpec::Core
   # with information about a particular event of interest.
   module Notifications
 
+    # @private
+    class NullColorizer
+      def wrap(line)
+        line
+      end
+    end
+
     # The `StartNotification` represents a notification sent by the reporter
     # when the suite is started. It contains the expected amount of examples
     # to be executed, and the load time of RSpec.
@@ -146,21 +153,8 @@ module RSpec::Core
       # Returns the message generated for this failure line by line.
       #
       # @return [Array(String)] The example failure message
-      def message_lines(colorizer = ::RSpec::Core::Formatters::ConsoleCodes)
-        @lines ||=
-          begin
-            lines = ["Failure/Error: #{read_failed_line.strip}"]
-            lines << "#{exception_class_name}:" unless exception_class_name =~ /RSpec/
-            exception.message.to_s.split("\n").each do |line|
-              lines << "  #{line}" if exception.message
-            end
-            if shared_group
-              line = "Shared Example Group: \"#{shared_group.metadata[:shared_group_name]}\"" +
-                " called from #{backtrace_formatter.backtrace_line(shared_group.location)}"
-              lines << colorizer.wrap(line, RSpec.configuration.default_color)
-            end
-            lines
-          end
+      def message_lines
+        add_shared_group_line(failure_lines, NullColorizer)
       end
 
       # Returns the message generated for this failure colorized line by line.
@@ -168,7 +162,7 @@ module RSpec::Core
       # @param colorizer [#wrap] An object to colorize the message_lines by
       # @return [Array(String)] The example failure message colorized
       def colorized_message_lines(colorizer = ::RSpec::Core::Formatters::ConsoleCodes)
-        message_lines.map do |line|
+        add_shared_group_line(failure_lines, colorizer).map do |line|
           colorizer.wrap line, RSpec.configuration.failure_color
         end
       end
@@ -218,8 +212,37 @@ module RSpec::Core
         name
       end
 
+      def failure_lines
+        @failure_lines ||=
+          begin
+            lines = ["Failure/Error: #{read_failed_line.strip}"]
+            lines << "#{exception_class_name}:" unless exception_class_name =~ /RSpec/
+            exception.message.to_s.split("\n").each do |line|
+              lines << "  #{line}" if exception.message
+            end
+            lines
+          end
+      end
+
+      def add_shared_group_line(lines, colorizer)
+        unless shared_group_line == ""
+          lines << colorizer.wrap(shared_group_line, RSpec.configuration.default_color)
+        end
+        lines
+      end
+
       def shared_group
         @shared_group ||= group_and_parent_groups.find { |group| group.metadata[:shared_group_name] }
+      end
+
+      def shared_group_line
+        @shared_group_line ||=
+          if shared_group
+             "Shared Example Group: \"#{shared_group.metadata[:shared_group_name]}\"" +
+              " called from #{backtrace_formatter.backtrace_line(shared_group.location)}"
+          else
+            ""
+          end
       end
 
       def group_and_parent_groups
